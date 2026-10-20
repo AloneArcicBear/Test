@@ -1,0 +1,157 @@
+<!-- #claude -->
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>YouTube Player</title>
+<style>
+  :root {
+    --bg: #f5f5f7; --card: #ffffff; --text: #1d1d1f; --muted: #6e6e73;
+    --accent: #e62117; --border: #d2d2d7; --error: #c62828;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #111113; --card: #1c1c1e; --text: #f5f5f7; --muted: #a1a1a6;
+      --accent: #ff3b30; --border: #3a3a3c; --error: #ff6b6b;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  main { max-width: 900px; margin: 0 auto; padding: 24px 16px; }
+  h1 { font-size: 1.4rem; margin: 0 0 16px; }
+  form { display: flex; gap: 8px; flex-wrap: wrap; }
+  input {
+    flex: 1 1 240px; min-width: 0; padding: 12px 14px; font-size: 16px;
+    border: 1px solid var(--border); border-radius: 10px;
+    background: var(--card); color: var(--text);
+  }
+  button {
+    padding: 12px 16px; font-size: 16px; border: none; border-radius: 10px;
+    cursor: pointer; font-weight: 600;
+  }
+  .primary { background: var(--accent); color: #fff; }
+  .secondary { background: var(--card); color: var(--text); border: 1px solid var(--border); }
+  #msg { min-height: 1.4em; margin: 10px 0; color: var(--error); font-size: .95rem; }
+  .player {
+    position: relative; width: 100%; aspect-ratio: 16 / 9;
+    background: #000; border-radius: 12px; overflow: hidden;
+  }
+  .player iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+  .placeholder {
+    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    color: #888; text-align: center; padding: 16px;
+  }
+</style>
+</head>
+<body>
+<main>
+  <h1>YouTube Player</h1>
+  <form id="form">
+    <input id="url" type="url" inputmode="url" autocomplete="off"
+           placeholder="YouTube-Link hier einfügen…">
+    <button type="button" id="paste" class="secondary">Einfügen</button>
+    <button type="submit" class="primary">Abspielen</button>
+  </form>
+  <div id="msg"></div>
+  <div class="player" id="player">
+    <div class="placeholder">Füge oben einen YouTube-Link ein.</div>
+  </div>
+</main>
+
+<script>
+// #claude
+const input = document.getElementById('url');
+const msg = document.getElementById('msg');
+const player = document.getElementById('player');
+
+// Liest Video-ID, Startzeit und Playlist aus allen gängigen YouTube-Link-Formaten.
+function parseYouTube(text) {
+  text = text.trim();
+  if (/^[\w-]{11}$/.test(text)) return { id: text };          // nur die ID
+  let url;
+  try { url = new URL(/^https?:\/\//i.test(text) ? text : 'https://' + text); }
+  catch { return null; }
+
+  const host = url.hostname.replace(/^(www\.|m\.|music\.)/, '');
+  let id = null;
+  if (host === 'youtu.be') {
+    id = url.pathname.slice(1).split('/')[0];
+  } else if (host === 'youtube.com' || host === 'youtube-nocookie.com') {
+    id = url.searchParams.get('v');
+    const m = url.pathname.match(/^\/(embed|shorts|live|v)\/([\w-]{11})/);
+    if (!id && m) id = m[2];
+  } else {
+    return null;
+  }
+
+  const list = url.searchParams.get('list');
+  if (!id && !list) return null;
+  if (id && !/^[\w-]{11}$/.test(id)) return null;
+
+  return { id, list, start: parseTime(url.searchParams.get('t') || url.searchParams.get('start')) };
+}
+
+// "90", "90s", "1m30s", "1h2m3s" -> Sekunden
+function parseTime(t) {
+  if (!t) return 0;
+  if (/^\d+$/.test(t)) return +t;
+  const m = t.match(/^(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?$/);
+  return m ? (+m[1] || 0) * 3600 + (+m[2] || 0) * 60 + (+m[3] || 0) : 0;
+}
+
+function play(text) {
+  const v = parseYouTube(text);
+  if (!v) { msg.textContent = 'Das ist kein gültiger YouTube-Link.'; return; }
+  msg.textContent = '';
+
+  const params = new URLSearchParams({ autoplay: '1', playsinline: '1', rel: '0' });
+  if (v.start) params.set('start', v.start);
+  let src;
+  if (v.id) {
+    src = 'https://www.youtube-nocookie.com/embed/' + v.id;
+    if (v.list) params.set('list', v.list);
+  } else {
+    src = 'https://www.youtube-nocookie.com/embed/videoseries';
+    params.set('list', v.list);
+  }
+
+  const iframe = document.createElement('iframe');
+  iframe.src = src + '?' + params;
+  iframe.allow = 'autoplay; encrypted-media; picture-in-picture; fullscreen';
+  iframe.allowFullscreen = true;
+  iframe.referrerPolicy = 'strict-origin-when-cross-origin';
+  player.replaceChildren(iframe);
+
+  try { localStorage.setItem('lastVideo', text); } catch {}
+}
+
+document.getElementById('form').addEventListener('submit', e => {
+  e.preventDefault();
+  play(input.value);
+});
+
+// Direkt abspielen, sobald ein Link eingefügt wird
+input.addEventListener('paste', () => setTimeout(() => play(input.value), 0));
+
+document.getElementById('paste').addEventListener('click', async () => {
+  try {
+    input.value = await navigator.clipboard.readText();
+    play(input.value);
+  } catch {
+    msg.textContent = 'Zugriff auf Zwischenablage nicht erlaubt – bitte manuell einfügen.';
+    input.focus();
+  }
+});
+
+// Link über URL-Parameter (?link=...) oder zuletzt gespieltes Video laden
+const fromUrl = new URLSearchParams(location.search).get('link');
+let last = null;
+try { last = localStorage.getItem('lastVideo'); } catch {}
+if (fromUrl || last) { input.value = fromUrl || last; }
+</script>
+</body>
+</html>
